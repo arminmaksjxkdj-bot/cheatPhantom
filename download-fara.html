@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fara Cheat V2</title>
+
+<link rel="stylesheet" href="style.css">
+
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+</head>
+
+<body>
+
+<header>
+
+<h1>Fara Cheat V2</h1>
+
+<p>Your download will start in</p>
+
+</header>
+
+<div class="hero">
+
+<h2><span id="count">10</span> Seconds</h2>
+
+<p>Please wait...</p>
+
+<a id="downloadBtn"
+href="files/Fara-Cheat-V2.rar"
+download
+class="download-btn"
+style="display:none;">
+Download Now
+</a>
+
+</div>
+
+<script>
+
+let time = 10;
+
+const count = document.getElementById("count");
+const btn = document.getElementById("downloadBtn");
+
+const timer = setInterval(() => {
+
+time--;
+
+count.innerText = time;
+
+if(time <= 0){
+
+clearInterval(timer);
+
+btn.style.display = "inline-block";
+
+btn.click();
+
+}
+
+},1000);
+
+</script>
+
+</body>
+</html>
