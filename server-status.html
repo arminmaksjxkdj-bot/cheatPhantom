@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>وضعیت سرور | Pulse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-deep:#07040D;
+    --bg-panel:#130B22;
+    --bg-panel-2:#180F2B;
+    --ink:#EDE9F7;
+    --ink-dim:#9885B8;
+    --line:#2A1A45;
+    --online:#4FE0E8;
+    --online-dim:#0F4A4E;
+    --offline:#E23B6B;
+    --offline-dim:#4E1530;
+    --signal:#A855F7;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{
+    width:100%;height:100%;
+    background:var(--bg-deep);
+    color:var(--ink);
+    font-family:'Space Grotesk',sans-serif;
+    overflow:hidden;
+  }
+  #canvas-wrap{
+    position:fixed;inset:0;
+    z-index:1;
+  }
+  #canvas-wrap::after{
+    content:'';
+    position:absolute;inset:0;
+    background:
+      radial-gradient(ellipse at 50% 45%, transparent 0%, rgba(8,11,16,0.15) 55%, var(--bg-deep) 100%);
+    pointer-events:none;
+  }
+  .grid-overlay{
+    position:fixed;inset:0;z-index:0;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size:48px 48px;
+    opacity:0.35;
+    -webkit-mask-image:radial-gradient(ellipse at 50% 40%, black 0%, transparent 70%);
+    mask-image:radial-gradient(ellipse at 50% 40%, black 0%, transparent 70%);
+  }
+
+  .hud{
+    position:fixed;inset:0;z-index:5;
+    pointer-events:none;
+    padding:28px;
+    display:flex;flex-direction:column;justify-content:space-between;
+  }
+  .hud > *{pointer-events:auto;}
+
+  /* top row */
+  .top-row{
+    display:flex;justify-content:space-between;align-items:flex-start;
+  }
+  .brand{
+    display:flex;align-items:center;gap:12px;
+  }
+  .brand-mark{
+    width:38px;height:38px;flex-shrink:0;
+  }
+  .brand-text{
+    display:flex;flex-direction:column;line-height:1.15;
+  }
+  .brand-text b{
+    font-family:'Silkscreen',sans-serif;
+    font-size:13px;font-weight:700;letter-spacing:0.5px;
+    color:var(--signal);
+  }
+  .brand-text span{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;color:var(--ink-dim);letter-spacing:0.5px;
+  }
+
+  .logo-corner{
+    display:flex;flex-direction:column;align-items:flex-end;gap:6px;
+  }
+  .logo-badge{
+    width:64px;height:64px;
+    border:1px solid var(--line);
+    border-radius:14px;
+    background:var(--bg-panel);
+    display:flex;align-items:center;justify-content:center;
+    overflow:hidden;
+    box-shadow:0 0 0 1px rgba(168,85,247,0.15), 0 0 24px rgba(168,85,247,0.25), 0 12px 30px rgba(0,0,0,0.5);
+  }
+  .logo-badge img{width:100%;height:100%;object-fit:cover;}
+  .logo-caption{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px;color:var(--ink-dim);letter-spacing:1px;
+  }
+
+  /* center status label above the core */
+  .status-cluster{
+    position:absolute;top:50%;left:50%;
+    transform:translate(-50%,-118px);
+    display:flex;flex-direction:column;align-items:center;gap:10px;
+    text-align:center;
+  }
+  .status-pill{
+    display:flex;align-items:center;gap:8px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;font-weight:600;letter-spacing:1.5px;
+    padding:7px 16px;border-radius:999px;
+    border:1px solid var(--line);
+    background:rgba(14,20,28,0.6);
+    backdrop-filter:blur(6px);
+    transition:all .5s ease;
+  }
+  .status-pill .dot{
+    width:8px;height:8px;border-radius:50%;
+    transition:all .5s ease;
+  }
+  .status-pill.is-online{border-color:rgba(61,220,151,0.35);color:var(--online);}
+  .status-pill.is-online .dot{background:var(--online);box-shadow:0 0 12px 2px var(--online);}
+  .status-pill.is-offline{border-color:rgba(226,87,76,0.35);color:var(--offline);}
+  .status-pill.is-offline .dot{background:var(--offline);box-shadow:0 0 12px 2px var(--offline);}
+
+  .server-name{
+    font-family:'Silkscreen',sans-serif;
+    font-size:26px;font-weight:700;letter-spacing:1px;
+    background:linear-gradient(180deg,#7FE8F0,#A855F7);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    text-shadow:0 0 30px rgba(168,85,247,0.35);
+  }
+
+  /* bottom panel */
+  .bottom-row{
+    display:flex;justify-content:space-between;align-items:flex-end;
+    gap:20px;flex-wrap:wrap;
+  }
+  .panel{
+    background:linear-gradient(180deg, rgba(24,15,43,0.8), rgba(19,11,34,0.8));
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:16px 20px;
+    backdrop-filter:blur(10px);
+    min-width:240px;
+  }
+  .connection-panel{min-width:320px;}
+  #ipValue{font-size:12px;}
+  .panel .row{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:6px 0;
+    border-bottom:1px solid var(--line);
+    font-family:'JetBrains Mono',monospace;
+    font-size:12.5px;
+  }
+  .panel .row:last-child{border-bottom:none;}
+  .panel .row .k{color:var(--ink-dim);letter-spacing:0.5px;}
+  .panel .row .v{color:var(--ink);font-weight:600;letter-spacing:0.5px;direction:ltr;}
+  .panel .v.online{color:var(--online);}
+  .panel .v.offline{color:var(--offline);}
+  .ip-row{gap:10px;}
+  .ip-row .v{display:flex;align-items:center;gap:8px;}
+  .copy-btn{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px;letter-spacing:0.5px;
+    color:var(--signal);
+    background:rgba(168,85,247,0.12);
+    border:1px solid rgba(168,85,247,0.35);
+    border-radius:6px;
+    padding:3px 8px;
+    cursor:pointer;
+    transition:all .2s ease;
+  }
+  .copy-btn:hover{background:rgba(168,85,247,0.25);}
+  .copy-btn.copied{color:var(--online);border-color:rgba(79,224,232,0.4);background:rgba(79,224,232,0.12);}
+  .panel-title{
+    font-size:11px;color:var(--ink-dim);letter-spacing:2px;
+    margin-bottom:10px;font-family:'JetBrains Mono',monospace;
+  }
+
+  .uptime-panel{min-width:180px;}
+  .bar-track{
+    width:100%;height:4px;border-radius:2px;background:var(--line);
+    overflow:hidden;margin-top:10px;
+  }
+  .bar-fill{
+    height:100%;background:linear-gradient(90deg,var(--signal),var(--online));
+    width:0%;transition:width 1.2s ease;
+    box-shadow:0 0 8px rgba(168,85,247,0.5);
+  }
+
+  .footer-note{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;color:var(--ink-dim);
+    text-align:center;letter-spacing:0.5px;
+  }
+
+  @media (max-width:640px){
+    .hud{padding:16px;}
+    .server-name{font-size:20px;}
+    .panel{min-width:0;flex:1 1 100%;}
+    .bottom-row{flex-direction:column;align-items:stretch;}
+  }
+</style>
+</head>
+<body>
+
+<div class="grid-overlay"></div>
+<div id="canvas-wrap"></div>
+
+<div class="hud">
+  <div class="top-row">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 40 40" fill="none">
+        <rect x="1" y="1" width="38" height="38" rx="9" stroke="#2A3542" stroke-width="1"/>
+        <rect x="10" y="12" width="20" height="5" rx="1.5" fill="#3DDC97" opacity="0.9"/>
+        <rect x="10" y="19" width="20" height="5" rx="1.5" fill="#5B8DEF" opacity="0.7"/>
+        <rect x="10" y="26" width="12" height="4" rx="1.5" fill="#7C8B9C" opacity="0.5"/>
+      </svg>
+      <div class="brand-text">
+        <b>ZYROCRAFT</b>
+        <span>SERVER STATUS</span>
+      </div>
+    </div>
+
+    <div class="logo-corner">
+      <div class="logo-badge">
+        <img src="zyrocraft-logo.png" alt="ZyroCraft" />
+      </div>
+      <span class="logo-caption">ZYROCRAFT</span>
+    </div>
+  </div>
+
+  <div class="status-cluster">
+    <div class="server-name">ZYROCRAFT</div>
+    <div class="status-pill is-online" id="statusPill">
+      <span class="dot"></span>
+      <span id="statusText">آنلاین</span>
+    </div>
+  </div>
+
+  <div class="bottom-row">
+    <div class="panel connection-panel">
+      <div class="panel-title">اتصال به سرور</div>
+      <div class="row ip-row">
+        <span class="k">ADDRESS</span>
+        <span class="v">
+          <span id="ipValue">dynamic-10.magmanode.com:25745</span>
+          <button class="copy-btn" id="copyBtn" onclick="copyIp()">کپی</button>
+        </span>
+      </div>
+      <div class="row">
+        <span class="k">PING</span>
+        <span class="v" id="pingValue">— ms</span>
+      </div>
+    </div>
+
+    <div class="panel uptime-panel">
+      <div class="panel-title">UPTIME</div>
+      <div class="row">
+        <span class="k">وضعیت</span>
+        <span class="v online" id="uptimeValue">99.9%</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" id="uptimeBar"></div></div>
+    </div>
+
+    <div class="footer-note">آخرین بروزرسانی: <span id="lastCheck">همین الان</span> — هر ۵ ثانیه چک می‌شود</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* =========================================================
+   بخش تنظیمات — این‌ها رو با اطلاعات واقعی سرورتون جایگزین کنید
+   ========================================================= */
+const CONFIG = {
+  serverName: "ZYROCRAFT",
+  ip: "dynamic-10.magmanode.com:25745",
+  // اگه یه endpoint دارید که وضعیت سرور رو برمی‌گردونه (مثلاً یه API که
+  // { "online": true } برمی‌گردونه)، آدرسش رو اینجا بذارید. در غیر این
+  // صورت null بذارید تا حالت شبیه‌سازی‌شده (دمو) فعال بمونه.
+  statusEndpoint: null,
+  checkIntervalMs: 5000
+};
+
+document.getElementById('ipValue').textContent = CONFIG.ip;
+document.querySelector('.server-name').textContent = CONFIG.serverName;
+
+/* =========================================================
+   Three.js — هسته‌ی پالس سرور
+   ========================================================= */
+let scene, camera, renderer, core, ring, particles, glowLight;
+let isOnline = true;
+let targetColor = new THREE.Color(0x4FE0E8);
+let currentColor = new THREE.Color(0x4FE0E8);
+
+function initScene(){
+  const wrap = document.getElementById('canvas-wrap');
+  scene = new THREE.Scene();
+
+  camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
+  camera.position.set(0, 0.4, 7);
+
+  renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  wrap.appendChild(renderer.domElement);
+
+  // هسته‌ی مرکزی (وایرفریم چندوجهی)
+  const coreGeo = new THREE.IcosahedronGeometry(1.35, 1);
+  const coreMat = new THREE.MeshBasicMaterial({ color: 0x4FE0E8, wireframe:true, transparent:true, opacity:0.85 });
+  core = new THREE.Mesh(coreGeo, coreMat);
+  scene.add(core);
+
+  // هسته‌ی توپر داخلی با شفافیت کم برای حس عمق (پرتال بنفش)
+  const innerGeo = new THREE.IcosahedronGeometry(1.0, 1);
+  const innerMat = new THREE.MeshBasicMaterial({ color: 0xA855F7, transparent:true, opacity:0.10 });
+  const inner = new THREE.Mesh(innerGeo, innerMat);
+  core.add(inner);
+
+  // حلقه‌ی چرخان بیرونی — به رنگ پرتال بنفش
+  const ringGeo = new THREE.TorusGeometry(2.15, 0.012, 16, 120);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xA855F7, transparent:true, opacity:0.55 });
+  ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.x = Math.PI/2.3;
+  scene.add(ring);
+
+  const ring2 = new THREE.Mesh(new THREE.TorusGeometry(2.55, 0.008, 16, 120), new THREE.MeshBasicMaterial({ color:0x4FE0E8, transparent:true, opacity:0.25 }));
+  ring2.rotation.x = Math.PI/1.8;
+  ring2.rotation.y = 0.4;
+  scene.add(ring2);
+
+  // ذرات دیتا معلق در فضا
+  const particleCount = 220;
+  const positions = new Float32Array(particleCount*3);
+  for(let i=0;i<particleCount;i++){
+    const r = 3 + Math.random()*3.5;
+    const theta = Math.random()*Math.PI*2;
+    const phi = Math.acos((Math.random()*2)-1);
+    positions[i*3] = r*Math.sin(phi)*Math.cos(theta);
+    positions[i*3+1] = r*Math.sin(phi)*Math.sin(theta)*0.6;
+    positions[i*3+2] = r*Math.cos(phi);
+  }
+  const particleGeo = new THREE.BufferGeometry();
+  particleGeo.setAttribute('position', new THREE.BufferAttribute(positions,3));
+  const particleMat = new THREE.PointsMaterial({ color:0xC9B6F0, size:0.02, transparent:true, opacity:0.55 });
+  particles = new THREE.Points(particleGeo, particleMat);
+  scene.add(particles);
+
+  window.addEventListener('resize', onResize);
+}
+
+function onResize(){
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+let clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  core.rotation.y = t*0.18;
+  core.rotation.x = Math.sin(t*0.15)*0.15;
+  ring.rotation.z = t*0.12;
+  particles.rotation.y = t*0.03;
+
+  // پالس تنفسی هسته — سرعتش بسته به وضعیت آنلاین/آفلاین فرق می‌کنه
+  const pulseSpeed = isOnline ? 1.6 : 0.6;
+  const pulseAmp = isOnline ? 0.06 : 0.02;
+  const scale = 1 + Math.sin(t*pulseSpeed)*pulseAmp;
+  core.scale.set(scale, scale, scale);
+
+  currentColor.lerp(targetColor, 0.03);
+  core.material.color.copy(currentColor);
+  core.children[0].material.color.copy(currentColor);
+
+  renderer.render(scene, camera);
+}
+
+initScene();
+animate();
+
+/* =========================================================
+   منطق وضعیت آنلاین/آفلاین
+   ========================================================= */
+const pill = document.getElementById('statusPill');
+const statusText = document.getElementById('statusText');
+const uptimeValue = document.getElementById('uptimeValue');
+const uptimeBar = document.getElementById('uptimeBar');
+const pingValue = document.getElementById('pingValue');
+const lastCheck = document.getElementById('lastCheck');
+
+function setStatus(online, pingMs){
+  isOnline = online;
+  targetColor = new THREE.Color(online ? 0x4FE0E8 : 0xE23B6B);
+
+  pill.classList.toggle('is-online', online);
+  pill.classList.toggle('is-offline', !online);
+  statusText.textContent = online ? 'آنلاین' : 'آفلاین';
+
+  uptimeValue.textContent = online ? '99.9%' : 'قطع';
+  uptimeValue.classList.toggle('online', online);
+  uptimeValue.classList.toggle('offline', !online);
+  uptimeBar.style.width = online ? '99.9%' : '4%';
+
+  pingValue.textContent = online ? `${pingMs} ms` : '— ms';
+  lastCheck.textContent = new Date().toLocaleTimeString('fa-IR');
+}
+
+async function checkStatus(){
+  if(CONFIG.statusEndpoint){
+    const started = performance.now();
+    try{
+      const res = await fetch(CONFIG.statusEndpoint, { cache:'no-store' });
+      const ms = Math.round(performance.now()-started);
+      const data = await res.json().catch(()=>({online:res.ok}));
+      setStatus(!!data.online, ms);
+    }catch(e){
+      setStatus(false, 0);
+    }
+  } else {
+    // حالت دمو: شبیه‌سازی وضعیت (بیشتر وقت‌ها آنلاین)
+    const simulatedOnline = Math.random() > 0.12;
+    const simulatedPing = 12 + Math.round(Math.random()*40);
+    setStatus(simulatedOnline, simulatedPing);
+  }
+}
+
+checkStatus();
+setInterval(checkStatus, CONFIG.checkIntervalMs);
+
+function copyIp(){
+  navigator.clipboard.writeText(CONFIG.ip).then(()=>{
+    const btn = document.getElementById('copyBtn');
+    btn.textContent = 'کپی شد!';
+    btn.classList.add('copied');
+    setTimeout(()=>{ btn.textContent='کپی'; btn.classList.remove('copied'); }, 1800);
+  });
+}
+</script>
+</body>
+</html>

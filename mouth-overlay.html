@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+<meta charset="UTF-8">
+<title>Mouth Overlay - OBS</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+    font-family: Tahoma, Arial, sans-serif;
+  }
+  #stage {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+  }
+  canvas {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+  /* پنل تنظیمات فقط زمانی دیده میشه که موس روش بره - داخل OBS اصلا رندر نمیشه چون کپچر تصویره نه اسکرین‌شات موس */
+  #panel {
+    position: fixed;
+    bottom: 10px;
+    left: 10px;
+    background: rgba(20,20,20,0.75);
+    color: #fff;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 12px;
+    z-index: 10;
+    direction: rtl;
+    max-width: 260px;
+    line-height: 1.8;
+  }
+  #panel label { display:block; margin-top:6px; }
+  #panel input[type=range] { width: 150px; vertical-align: middle; }
+  #status { font-weight: bold; }
+  #startBtn {
+    margin-top: 8px;
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    background: #4caf50;
+    color: #fff;
+    cursor: pointer;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="c"></canvas>
+</div>
+
+<div id="panel">
+  <div>وضعیت: <span id="status">میکروفون وصل نیست</span></div>
+  <button id="startBtn">شروع (اجازه میکروفون)</button>
+  <label>حساسیت (سنسیتیویتی)
+    <input type="range" id="sens" min="1" max="10" value="4" step="0.5">
+  </label>
+  <label>نرمی حرکت (ضد لرزش)
+    <input type="range" id="smooth" min="1" max="20" value="8" step="1">
+  </label>
+  <label>حداقل آستانه صدا (نویز)
+    <input type="range" id="thresh" min="0" max="20" value="4" step="1">
+  </label>
+  <label>رنگ دهن
+    <input type="color" id="color" value="#3a1f1f">
+  </label>
+  <label>سایز صورت (شعاع)
+    <input type="range" id="size" min="40" max="300" value="120" step="5">
+  </label>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const stage = document.getElementById('stage');
+const statusEl = document.getElementById('status');
+const startBtn = document.getElementById('startBtn');
+
+const sensEl = document.getElementById('sens');
+const smoothEl = document.getElementById('smooth');
+const threshEl = document.getElementById('thresh');
+const colorEl = document.getElementById('color');
+const sizeEl = document.getElementById('size');
+
+function resize() {
+  canvas.width = stage.clientWidth;
+  canvas.height = stage.clientHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+let audioCtx, analyser, dataArray, source;
+let currentOpen = 0;      // مقدار فعلی بازبودن دهن بعد از فیلتر
+let targetOpen = 0;       // مقدار خام لحظه‌ای صدا
+let running = false;
+
+// فیلتر ضد لرزش: ترکیب "attack سریع" و "release آروم" تا دهن هم سریع باز بشه هم نرم بسته بشه
+function smoothStep(current, target, smoothingFactor) {
+  // smoothingFactor بزرگتر یعنی نرم‌تر (کندتر) حرکت کنه
+  const attackAlpha = Math.min(1, 4 / smoothingFactor);   // باز شدن سریع‌تر
+  const releaseAlpha = Math.min(1, 1 / smoothingFactor);  // بسته شدن نرم‌تر
+  const alpha = target > current ? attackAlpha : releaseAlpha;
+  return current + (target - current) * alpha;
+}
+
+async function startMic() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    }});
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    source = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.4;
+    source.connect(analyser);
+    dataArray = new Uint8Array(analyser.fftSize);
+    running = true;
+    statusEl.textContent = 'میکروفون فعال ✅';
+    startBtn.style.display = 'none';
+    requestAnimationFrame(loop);
+  } catch (err) {
+    statusEl.textContent = 'خطا در دسترسی به میکروفون ❌';
+    console.error(err);
+    alert('دسترسی به میکروفون رد شد یا در دسترس نیست. اگه داخل OBS هستی، تو تنظیمات Browser Source گزینه دسترسی به میکروفون رو فعال کن (یا این فایل رو یک‌بار داخل مرورگر عادی باز کن و اجازه بده، بعد همون پروفایل رو تو OBS استفاده کن).');
+  }
+}
+
+startBtn.addEventListener('click', startMic);
+
+function getVolume() {
+  analyser.getByteTimeDomainData(dataArray);
+  let sum = 0;
+  for (let i = 0; i < dataArray.length; i++) {
+    const v = (dataArray[i] - 128) / 128;
+    sum += v * v;
+  }
+  const rms = Math.sqrt(sum / dataArray.length); // 0..1 تقریبا
+  return rms * 100; // مقیاس بزرگتر برای کنترل راحت‌تر
+}
+
+function loop() {
+  if (!running) return;
+
+  const sens = parseFloat(sensEl.value);
+  const smoothF = parseFloat(smoothEl.value);
+  const thresh = parseFloat(threshEl.value);
+  const color = colorEl.value;
+  const faceR = parseFloat(sizeEl.value);
+
+  let vol = getVolume();
+  if (vol < thresh) vol = 0;
+  targetOpen = Math.min(1, (vol * sens) / 30);
+
+  currentOpen = smoothStep(currentOpen, targetOpen, smoothF);
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+
+  // دهن: بیضی که ارتفاعش با میزان باز بودن تغییر می‌کنه
+  const mouthWidth = faceR * 0.9;
+  const mouthMaxHeight = faceR * 0.55;
+  const mouthHeight = 6 + currentOpen * mouthMaxHeight;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(0, faceR * 0.15, mouthWidth / 2, mouthHeight / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  requestAnimationFrame(loop);
+}
+</script>
+
+</body>
+</html>
